@@ -1,4 +1,8 @@
-# Welcome to your Expo app 👋
+# cycle-tracker
+
+A cycle tracking mobile app built with Expo (SDK 58) and Expo Router.
+
+## About this project
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
