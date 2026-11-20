@@ -9,7 +9,9 @@
  */
 
 export type Species = 'cat' | 'bunny' | 'bear' | 'pup';
+export const SPECIES_IDS: readonly Species[] = ['cat', 'bunny', 'bear', 'pup'];
 export type FurColor = 'honey' | 'cocoa' | 'cream' | 'rose' | 'lavender' | 'charcoal';
+export const FUR_COLORS: readonly FurColor[] = ['honey', 'cocoa', 'cream', 'rose', 'lavender', 'charcoal'];
 export type Costume = 'none' | 'bow' | 'flowers' | 'scarf' | 'beanie' | 'crown';
 export type Eyes = 'normal' | 'happy' | 'sleepy' | 'sparkle' | 'soft' | 'blink';
 export type Outfit = 'none' | 'pajamas' | 'sweater';

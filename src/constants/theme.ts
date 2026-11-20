@@ -49,12 +49,5 @@ export const Fonts = {
 /** Size of one "pixel" in UI borders and shadows. */
 export const PX = 3;
 
-export const Spacing = {
-  xs: 4,
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 24,
-} as const;
 
 export const MaxContentWidth = 560;

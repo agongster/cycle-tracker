@@ -1,3 +1,4 @@
+import { useIsFocused } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
 
@@ -8,7 +9,8 @@ const FRAME_MS = 500;
 
 /**
  * The pet, animated with a two-frame idle bob (plus steam, sparkles and blinking),
- * stepped like a retro game instead of smoothly tweened.
+ * stepped like a retro game instead of smoothly tweened. The animation pauses while its
+ * screen isn't showing (another tab, or under the Customize sheet).
  */
 export function PetAvatar({
   look,
@@ -24,21 +26,23 @@ export function PetAvatar({
   accessibilityLabel?: string;
 }) {
   const [tick, setTick] = useState(0);
+  const focused = useIsFocused();
+  const running = animate && focused;
 
   useEffect(() => {
-    if (!animate) return;
+    if (!running) return;
     const id = setInterval(() => setTick((t) => t + 1), FRAME_MS);
     return () => clearInterval(id);
-  }, [animate]);
+  }, [running]);
 
   const frame: 0 | 1 = tick % 2 === 0 ? 0 : 1;
   const canBlink = look.eyes === 'normal' || look.eyes === 'soft' || look.eyes === 'sparkle';
-  const blinking = animate && canBlink && tick % 10 === 9;
+  const blinking = animate && canBlink && tick % 10 === 9; // tick 9 is always frame 1
 
-  const rows = useMemo(
-    () => buildPet({ ...look, eyes: blinking ? 'blink' : look.eyes }, frame),
-    [look, blinking, frame],
-  );
+  // Build each frame once per look instead of on every tick.
+  const frames = useMemo(() => [buildPet(look, 0), buildPet(look, 1)] as const, [look]);
+  const blinkFrame = useMemo(() => (canBlink ? buildPet({ ...look, eyes: 'blink' }, 1) : null), [look, canBlink]);
+  const rows = blinking && blinkFrame ? blinkFrame : frames[frame];
   const palette = useMemo(() => petPalette(look.color), [look.color]);
 
   const sprite = (

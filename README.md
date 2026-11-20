@@ -49,29 +49,40 @@ Once the dev server starts:
 
 Saving a file reloads the app automatically. To open the developer menu, shake the device or press `m` in the terminal.
 
+### Run the tests
+
+```bash
+npm test
+```
+
+Runs the Jest unit tests in `src/lib/__tests__/`. They cover the cycle math, predictions, care-point rules, and the check on saved data.
+
 ### Trying it out
 
-A fresh install starts with no data. To see predictions and stats right away, tap the pencil button on Home, then **Load sample cycles** (six irregular cycles, 26–34 days). **Erase everything** on the same screen resets the app. All data is stored only on the device (AsyncStorage) and survives app restarts.
+A fresh install starts with no data. To see predictions and stats right away, tap the pencil button on Home, then **Load sample cycles** (six irregular cycles, 26–34 days). **Erase everything** on the same screen resets the app. All data is stored only on the device (AsyncStorage) and survives app restarts. Android cloud backup is turned off in `app.json` (`allowBackup: false`). That setting only applies to a development or store build, not Expo Go.
 
 ### Project structure
 
 ```
 src/app/                 screens (Expo Router file-based routing)
-  _layout.tsx            root Stack: loads fonts + saved data, hosts the toast
+  _layout.tsx            root Stack: loads fonts + saved data, hosts the toast, crash screen
   (tabs)/_layout.tsx     custom pixel-art tab bar (Home, Calendar)
   (tabs)/index.tsx       Home: pet, dialogue/insight card, self-care, care points
   (tabs)/calendar.tsx    Calendar: month grid, log entry panel, history summary
   customize.tsx          modal for pet name, species, color, costumes, data tools
 src/components/          pixel UI kit (boxes, buttons, text), pet avatar, calendar parts, toast
-src/lib/
+src/lib/                 plain TypeScript, no React (unit tested in __tests__/)
   cycle.ts               period grouping, averages, variability, predictions, phase
   dates.ts               timezone-safe YYYY-MM-DD date math
   insights.ts            pet dialogue, advice, and phase/mood -> pet appearance
+  rewards.ts             care-point rules (logging and self-care), costumes
+  saved-state.ts         saved data shape + checking data loaded from storage
   sprites.ts             procedural pixel art for pets, costumes, props, icons
 src/state/
-  lunar.tsx              app state + AsyncStorage persistence + care points
-  use-cycle.ts           derived cycle stats for today
-src/constants/theme.ts   warm color palette, fonts, spacing
+  lunar.tsx              app state, today's date, AsyncStorage load/save
+  toast.tsx              toast messages (kept separate so they don't re-render screens)
+  use-cycle.ts           derived cycle stats for today, and the pet's look
+src/constants/theme.ts   warm color palette, fonts
 ```
 
 Fonts: [Silkscreen](https://fonts.google.com/specimen/Silkscreen) (headings) and [Jersey 15](https://fonts.google.com/specimen/Jersey+15) (body), via `@expo-google-fonts`. All pet and icon art is drawn in code. There are no image assets.

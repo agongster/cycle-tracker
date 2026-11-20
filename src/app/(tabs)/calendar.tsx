@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HistorySummary, Legend, LogPanel, MonthCalendar } from '@/components/calendar-parts';
 import { PText } from '@/components/pixel';
 import { C, MaxContentWidth } from '@/constants/theme';
-import { addDays, DateKey, monthOf, shiftMonth } from '@/lib/dates';
+import { addDays, DateKey, MonthRef, monthOf, shiftMonth } from '@/lib/dates';
+import { canEarnLogPoints } from '@/lib/rewards';
 import { useLunar } from '@/state/lunar';
 import { useCycle } from '@/state/use-cycle';
 
@@ -13,13 +15,29 @@ export default function CalendarScreen() {
   const insets = useSafeAreaInsets();
   const { state, setDayLog } = useLunar();
   const { today, stats } = useCycle();
-  const [selected, setSelected] = useState<DateKey>(today);
-  const [month, setMonth] = useState(() => monthOf(today));
+  const { day } = useLocalSearchParams<{ day?: string }>();
+
+  // null means "follow today" (so it's still right after midnight)...
+  const [picked, setPicked] = useState<DateKey | null>(null);
+  // ...and "show the month of the selected day".
+  const [pickedMonth, setPickedMonth] = useState<MonthRef | null>(null);
+  const selected = picked ?? today;
+  const month = pickedMonth ?? monthOf(selected);
 
   const select = (d: DateKey) => {
-    setSelected(d);
-    setMonth(monthOf(d));
+    setPicked(d === today ? null : d);
+    setPickedMonth(null);
   };
+
+  // Home's "Log today" button opens this screen with ?day=today: jump back to today...
+  if (day === 'today' && (picked !== null || pickedMonth !== null)) {
+    setPicked(null);
+    setPickedMonth(null);
+  }
+  // ...then clear the param, so pressing the button again later works too.
+  useEffect(() => {
+    if (day === 'today') router.setParams({ day: undefined });
+  }, [day]);
 
   return (
     <ScrollView
@@ -41,7 +59,7 @@ export default function CalendarScreen() {
           today={today}
           selected={selected}
           onSelect={select}
-          onShiftMonth={(delta) => setMonth((m) => shiftMonth(m, delta))}
+          onShiftMonth={(delta) => setPickedMonth(shiftMonth(month, delta))}
         />
         <Legend />
 
@@ -51,16 +69,19 @@ export default function CalendarScreen() {
           today={today}
           log={state.logs[selected]}
           predicted={stats.predicted[selected]}
-          rewarded={state.rewarded.includes(selected)}
+          touched={state.touched.includes(selected)}
+          canEarn={canEarnLogPoints(state, selected, today)}
           onChange={(log) => setDayLog(selected, log)}
           onShiftDate={(delta) => {
             const next = addDays(selected, delta);
-            if (next <= today) select(next);
+            // Going back always works, even from a future day. Going forward stops at
+            // today, since future days can't be logged.
+            if (delta < 0 || next <= today) select(next);
           }}
         />
 
         <PText variant="heading">Your patterns</PText>
-        <HistorySummary stats={stats} />
+        <HistorySummary stats={stats} today={today} />
       </View>
     </ScrollView>
   );

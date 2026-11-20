@@ -2,8 +2,8 @@
  * Turns cycle status into the pet's look and its warm, non-clinical words.
  * No "late" counters, no warnings. Irregular cycles are treated as normal.
  */
-import { Flow, Mood, Phase, TodayStatus } from './cycle';
-import { DateKey, formatShort } from './dates';
+import { CycleStats, Flow, Mood, Phase, TodayStatus } from './cycle';
+import { addDays, DateKey, diffDays, formatShort } from './dates';
 import { Eyes, Outfit, PetLook, Prop } from './sprites';
 
 export const PHASE_LABEL: Record<Phase, string> = {
@@ -58,19 +58,30 @@ export function adviceFor(s: TodayStatus): string {
   }
 }
 
-export function flowLine(s: TodayStatus, today: DateKey): string {
+/** Today's flow, matching the mark on today's Calendar cell (dashed = likely, dotted = possible). */
+export function flowLine(s: TodayStatus): string {
+  // A logged flow wins (the Calendar fills today's cell with it). Covers lone spotting days too.
+  if (s.loggedFlow) return `${FLOW_LABEL[s.loggedFlow]} logged today`;
   if (s.phase === 'unknown') return 'Not enough logs yet';
   if (s.phase === 'menstrual' && s.expectedFlow) return `${FLOW_LABEL[s.expectedFlow]} expected`;
-  // keys are YYYY-MM-DD, so string comparison is date order
-  if (s.next && !s.extended && s.next.windowStart <= today) return 'Could start any day. Maybe pack supplies';
-  if (s.daysUntilNext !== null && s.daysUntilNext <= 3) return 'Could start soon. Maybe pack supplies';
+  if (s.chance === 'likely') return 'Likely around now. Maybe pack supplies';
+  if (s.chance === 'possible') return 'Could start any day. Maybe pack supplies';
   return 'None expected today';
 }
 
-export function nextLine(s: TodayStatus, margin: number): string {
-  if (!s.next) return 'Log a period to see predictions';
-  if (s.extended) return 'Whenever your body is ready';
-  return `Around ${formatShort(s.next.start)} (±${margin} days)`;
+/**
+ * When the next period should come. Home's "Next" row and the Calendar's summary both
+ * use this one function, so they always say the same thing.
+ */
+export function nextPeriodText(stats: CycleStats, today: DateKey): string {
+  const p = stats.predictions[0];
+  if (!p) return 'Log a period to see predictions';
+  if (stats.extended) return 'Any day now, whenever your body is ready';
+  const range = `${formatShort(p.windowStart)}–${formatShort(addDays(p.start, stats.margin))}`;
+  const days = diffDays(p.start, today);
+  if (days > 0) return `Likely around ${formatShort(p.start)}, anytime ${range}`;
+  if (days === 0) return `Likely around today, anytime ${range}`;
+  return `Any day now, anytime ${range}`;
 }
 
 /** Things the pet says. Picked deterministically per day so the bubble doesn't flicker. */

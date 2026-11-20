@@ -2,216 +2,250 @@
  * App-wide state for Lunar Pal: cycle logs, the pet, and care points.
  *
  * Everything lives in AsyncStorage on the device only. No accounts, no network. It's
- * loaded once at startup and written back whenever something changes.
+ * loaded once at startup and written back whenever something changes. The points rules
+ * themselves are in `@/lib/rewards`.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 
 import { DayLog, hasContent, Logs } from '@/lib/cycle';
 import { addDays, DateKey, todayKey } from '@/lib/dates';
-import { Costume, FurColor, Species } from '@/lib/sprites';
-
-export interface PetConfig {
-  name: string;
-  species: Species;
-  color: FurColor;
-  costume: Costume;
-}
-
-export interface SavedState {
-  version: 1;
-  logs: Logs;
-  pet: PetConfig;
-  points: number;
-  /** self-care actions completed, by day */
-  care: Record<DateKey, string[]>;
-  /** days that already earned logging points (so points can't be farmed) */
-  rewarded: DateKey[];
-  owned: Costume[];
-}
-
-export const LOG_POINTS = 5;
-export const CARE_POINTS = 2;
-
-export const COSTUMES: { id: Costume; label: string; cost: number }[] = [
-  { id: 'none', label: 'None', cost: 0 },
-  { id: 'bow', label: 'Bow', cost: 0 },
-  { id: 'flowers', label: 'Flowers', cost: 10 },
-  { id: 'scarf', label: 'Scarf', cost: 20 },
-  { id: 'beanie', label: 'Beanie', cost: 30 },
-  { id: 'crown', label: 'Crown', cost: 50 },
-];
-
-export const CARE_ACTIONS = [
-  { id: 'water', label: 'Water', icon: 'drop' },
-  { id: 'tea', label: 'Warm drink', icon: 'cup' },
-  { id: 'move', label: 'Stretch', icon: 'leaf' },
-  { id: 'rest', label: 'Rest', icon: 'moon' },
-  { id: 'nourish', label: 'Good food', icon: 'apple' },
-  { id: 'kind', label: 'Kind words', icon: 'heart' },
-] as const;
+import {
+  CARE_POINTS,
+  CareId,
+  canEarnLogPoints,
+  careWouldPay,
+  COSTUMES,
+  LOG_POINTS,
+  rewardLog,
+  toggleCareReward,
+  touchDays,
+} from '@/lib/rewards';
+import { cleanName, DEFAULT_STATE, PetConfig, sanitize, SavedState } from '@/lib/saved-state';
+import { Costume } from '@/lib/sprites';
+import { useShowToast } from '@/state/toast';
 
 const STORAGE_KEY = 'lunar-pal:v1';
-
-const DEFAULT_STATE: SavedState = {
-  version: 1,
-  logs: {},
-  pet: { name: 'Mochi', species: 'cat', color: 'honey', costume: 'none' },
-  points: 0,
-  care: {},
-  rewarded: [],
-  owned: ['none', 'bow'],
-};
+/** Damaged saved data is copied here (plus a timestamp) before the app starts fresh. */
+const BACKUP_KEY_PREFIX = 'lunar-pal:v1:backup:';
+const READ_ATTEMPTS = 3;
 
 interface LunarContextValue {
   state: SavedState;
   ready: boolean;
+  /** Today's date, shared by every screen and refreshed across midnight. */
+  today: DateKey;
   setDayLog: (date: DateKey, log: DayLog) => void;
-  toggleCare: (id: string) => void;
-  updatePet: (patch: Partial<PetConfig>) => void;
-  /** Equip a costume, buying it with care points first if needed. Returns false if unaffordable. */
-  chooseCostume: (costume: Costume) => boolean;
+  toggleCare: (id: CareId) => void;
+  /** A blank name is ignored, so the pet always has one. */
+  updatePet: (patch: Partial<Omit<PetConfig, 'costume'>>) => void;
+  /** Put on a costume you already own. */
+  wearCostume: (costume: Costume) => void;
+  /** Spend care points on a costume and put it on (shows a toast if you can't afford it). */
+  buyCostume: (costume: Costume) => void;
   loadSampleData: () => void;
   eraseAll: () => void;
-  toast: { id: number; message: string } | null;
-  showToast: (message: string) => void;
 }
 
 const LunarContext = createContext<LunarContextValue | null>(null);
 
-function sanitize(raw: unknown): SavedState {
-  if (!raw || typeof raw !== 'object') return DEFAULT_STATE;
-  const r = raw as Partial<SavedState>;
-  return {
-    version: 1,
-    logs: r.logs && typeof r.logs === 'object' ? r.logs : {},
-    pet: { ...DEFAULT_STATE.pet, ...(r.pet ?? {}) },
-    points: typeof r.points === 'number' ? r.points : 0,
-    care: r.care && typeof r.care === 'object' ? r.care : {},
-    rewarded: Array.isArray(r.rewarded) ? r.rewarded : [],
-    owned: Array.isArray(r.owned) ? Array.from(new Set([...DEFAULT_STATE.owned, ...r.owned])) : DEFAULT_STATE.owned,
-  };
+// ---------------------------------------------------------------------------
+// Loading
+// ---------------------------------------------------------------------------
+
+type LoadProblem = 'unreadable' | 'damaged';
+interface LoadResult {
+  state: SavedState;
+  /** false means "don't write anything": the stored data might still be fine. */
+  canSave: boolean;
+  problem: LoadProblem | null;
 }
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Loads saved data without ever risking it:
+ * - a read error is retried, and if it keeps failing, saving is switched off for this session
+ *   so the stored data is left exactly as it was;
+ * - damaged (unparseable) data is copied to a backup key before the app starts fresh.
+ */
+async function loadSaved(): Promise<LoadResult> {
+  let json: string | null = null;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      json = await AsyncStorage.getItem(STORAGE_KEY);
+      break;
+    } catch (e) {
+      console.warn(`Lunar Pal: could not read saved data (attempt ${attempt})`, e);
+      if (attempt >= READ_ATTEMPTS) return { state: DEFAULT_STATE, canSave: false, problem: 'unreadable' };
+      await wait(300 * attempt);
+    }
+  }
+
+  if (json === null) return { state: DEFAULT_STATE, canSave: true, problem: null }; // first launch
+
+  let loaded: SavedState | null = null;
+  try {
+    loaded = sanitize(JSON.parse(json));
+  } catch (e) {
+    console.warn('Lunar Pal: saved data is damaged', e);
+  }
+  if (loaded) return { state: loaded, canSave: true, problem: null };
+
+  try {
+    await AsyncStorage.setItem(BACKUP_KEY_PREFIX + new Date().toISOString(), json);
+    return { state: DEFAULT_STATE, canSave: true, problem: 'damaged' };
+  } catch (e) {
+    console.warn('Lunar Pal: could not back up damaged data', e);
+    return { state: DEFAULT_STATE, canSave: false, problem: 'unreadable' };
+  }
+}
+
+const LOAD_PROBLEM_MESSAGE: Record<LoadProblem, string> = {
+  unreadable:
+    'Couldn’t open your saved data. It’s left untouched, but changes won’t be saved until you restart the app.',
+  damaged: 'Your saved data was damaged. A backup copy was kept, and Lunar Pal started fresh.',
+};
+
+/** Today's date key, kept fresh across midnight and when the app returns to the foreground. */
+function useToday(): DateKey {
+  const [today, setToday] = useState(todayKey);
+  useEffect(() => {
+    const refresh = () => setToday(todayKey());
+    const sub = AppState.addEventListener('change', (s) => s === 'active' && refresh());
+    const id = setInterval(refresh, 60_000);
+    return () => {
+      sub.remove();
+      clearInterval(id);
+    };
+  }, []);
+  return today;
+}
+
+// ---------------------------------------------------------------------------
+// Provider
+// ---------------------------------------------------------------------------
 
 export function LunarProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SavedState>(DEFAULT_STATE);
   const [ready, setReady] = useState(false);
-  const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [canSave, setCanSave] = useState(false);
+  const today = useToday();
+  const showToast = useShowToast();
+  const saveFailing = useRef(false);
 
   // Load once.
   useEffect(() => {
     let cancelled = false;
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then((json) => {
-        if (!cancelled && json) setState(sanitize(JSON.parse(json)));
+    loadSaved()
+      .catch((e): LoadResult => {
+        console.warn('Lunar Pal: could not load saved data', e);
+        return { state: DEFAULT_STATE, canSave: false, problem: 'unreadable' };
       })
-      .catch((e) => console.warn('Lunar Pal: could not load saved data', e))
-      .finally(() => {
-        if (!cancelled) setReady(true);
+      .then(({ state: loaded, canSave: ok, problem }) => {
+        if (cancelled) return;
+        setState(loaded);
+        setCanSave(ok);
+        setReady(true);
+        if (problem) showToast(LOAD_PROBLEM_MESSAGE[problem], 7000);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [showToast]);
 
-  // Save on every change (after the first load, so defaults never overwrite real data).
+  // Save on every change, but only after a load that went fine. If loading failed,
+  // nothing is written, so the defaults shown on screen can't replace what's stored.
   useEffect(() => {
-    if (!ready) return;
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state)).catch((e) =>
-      console.warn('Lunar Pal: could not save', e),
-    );
-  }, [state, ready]);
-
-  const showToast = useCallback((message: string) => {
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    setToast({ id: Date.now(), message });
-    toastTimer.current = setTimeout(() => setToast(null), 2400);
-  }, []);
+    if (!canSave) return;
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+      .then(() => {
+        saveFailing.current = false;
+      })
+      .catch((e) => {
+        console.warn('Lunar Pal: could not save', e);
+        // Say so once, not on every tap, until a save works again.
+        if (!saveFailing.current) {
+          showToast('Couldn’t save to this device. Lunar Pal will try again with your next change.', 6000);
+        }
+        saveFailing.current = true;
+      });
+  }, [state, canSave, showToast]);
 
   const setDayLog = useCallback(
     (date: DateKey, log: DayLog) => {
-      const clean: DayLog = {
-        period: log.period,
-        flow: log.period ? log.flow : undefined,
-        symptoms: log.symptoms,
-        mood: log.mood,
-      };
-      const earns = hasContent(clean) && !state.rewarded.includes(date);
+      const clean: DayLog = { period: log.period, symptoms: log.symptoms };
+      if (log.period && log.flow) clean.flow = log.flow;
+      if (log.mood) clean.mood = log.mood;
+      const logged = hasContent(clean);
+      const earns = logged && canEarnLogPoints(state, date, today);
       setState((s) => {
         const logs = { ...s.logs };
-        if (hasContent(clean)) logs[date] = clean;
+        if (logged) logs[date] = clean;
         else delete logs[date];
-        if (!earns || s.rewarded.includes(date)) return { ...s, logs };
-        return { ...s, logs, points: s.points + LOG_POINTS, rewarded: [...s.rewarded, date] };
+        return rewardLog({ ...s, logs }, date, logged, today);
       });
       if (earns) showToast(`+${LOG_POINTS} care points! ${state.pet.name} is proud of you`);
     },
-    [state.rewarded, state.pet.name, showToast],
+    [state, today, showToast],
   );
 
   const toggleCare = useCallback(
-    (id: string) => {
-      const today = todayKey();
-      const wasDone = (state.care[today] ?? []).includes(id);
-      setState((s) => {
-        const done = s.care[today] ?? [];
-        const on = !done.includes(id);
-        // keep only the last 60 days of care history
-        const cutoff = addDays(today, -60);
-        const care: Record<DateKey, string[]> = {};
-        for (const [k, v] of Object.entries(s.care)) if (k >= cutoff) care[k] = v;
-        care[today] = on ? [...done, id] : done.filter((d) => d !== id);
-        return { ...s, care, points: Math.max(0, s.points + (on ? CARE_POINTS : -CARE_POINTS)) };
-      });
-      if (!wasDone) showToast(`+${CARE_POINTS} care points`);
+    (id: CareId) => {
+      const pays = careWouldPay(state, id, today);
+      setState((s) => toggleCareReward(s, id, today));
+      if (pays) showToast(`+${CARE_POINTS} care points`);
     },
-    [state.care, showToast],
+    [state, today, showToast],
   );
 
-  const updatePet = useCallback((patch: Partial<PetConfig>) => {
-    setState((s) => ({ ...s, pet: { ...s.pet, ...patch } }));
+  const updatePet = useCallback((patch: Partial<Omit<PetConfig, 'costume'>>) => {
+    setState((s) => {
+      const name = patch.name === undefined ? s.pet.name : (cleanName(patch.name) ?? s.pet.name);
+      return { ...s, pet: { ...s.pet, ...patch, name } };
+    });
   }, []);
 
-  const chooseCostume = useCallback(
+  const wearCostume = useCallback((costume: Costume) => {
+    setState((s) => (s.owned.includes(costume) ? { ...s, pet: { ...s.pet, costume } } : s));
+  }, []);
+
+  const buyCostume = useCallback(
     (costume: Costume) => {
-      if (state.owned.includes(costume)) {
-        setState((s) => ({ ...s, pet: { ...s.pet, costume } }));
-        return true;
-      }
+      if (state.owned.includes(costume)) return wearCostume(costume);
       const cost = COSTUMES.find((c) => c.id === costume)?.cost ?? 0;
       if (state.points < cost) {
         showToast(`Need ${cost - state.points} more care points`);
-        return false;
+        return;
       }
-      setState((s) => ({
-        ...s,
-        points: s.points - cost,
-        owned: [...s.owned, costume],
-        pet: { ...s.pet, costume },
-      }));
+      setState((s) => ({ ...s, points: s.points - cost, owned: [...s.owned, costume], pet: { ...s.pet, costume } }));
       showToast('Unlocked! So stylish');
-      return true;
     },
-    [state.owned, state.points, showToast],
+    [state.owned, state.points, wearCostume, showToast],
   );
 
   const loadSampleData = useCallback(() => {
-    setState((s) => ({ ...s, logs: makeSampleLogs(todayKey()) }));
+    setState((s) => {
+      const logs = makeSampleLogs(today);
+      // Sample days count as touched, so editing them can't be used to farm points.
+      return touchDays({ ...s, logs }, Object.keys(logs));
+    });
     showToast('Sample cycles loaded');
-  }, [showToast]);
+  }, [today, showToast]);
 
   const eraseAll = useCallback(() => {
+    // Wipes everything, points included, so there's nothing to gain by re-logging afterwards.
     setState(DEFAULT_STATE);
     showToast('All data erased');
   }, [showToast]);
 
-  return (
-    <LunarContext.Provider
-      value={{ state, ready, setDayLog, toggleCare, updatePet, chooseCostume, loadSampleData, eraseAll, toast, showToast }}>
-      {children}
-    </LunarContext.Provider>
+  const value = useMemo<LunarContextValue>(
+    () => ({ state, ready, today, setDayLog, toggleCare, updatePet, wearCostume, buyCostume, loadSampleData, eraseAll }),
+    [state, ready, today, setDayLog, toggleCare, updatePet, wearCostume, buyCostume, loadSampleData, eraseAll],
   );
+
+  return <LunarContext.Provider value={value}>{children}</LunarContext.Provider>;
 }
 
 export function useLunar() {

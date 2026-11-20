@@ -4,8 +4,9 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { PixelBox, PixelButton, PixelIcon, PText } from '@/components/pixel';
 import { C, FLOW_COLORS } from '@/constants/theme';
 import { CycleStats, DayLog, FLOWS, hasContent, Logs, Mood, MOODS, SYMPTOMS } from '@/lib/cycle';
-import { addDays, DateKey, formatLong, formatShort, MonthRef, monthGrid, MONTHS } from '@/lib/dates';
-import { FLOW_LABEL, MOOD_LABEL } from '@/lib/insights';
+import { DateKey, formatLong, MonthRef, monthGrid, MONTHS } from '@/lib/dates';
+import { FLOW_LABEL, MOOD_LABEL, nextPeriodText } from '@/lib/insights';
+import { LOG_POINTS } from '@/lib/rewards';
 
 // ---------------------------------------------------------------------------
 // Month calendar
@@ -160,7 +161,8 @@ export function LogPanel({
   today,
   log,
   predicted,
-  rewarded,
+  touched,
+  canEarn,
   onChange,
   onShiftDate,
 }: {
@@ -168,7 +170,10 @@ export function LogPanel({
   today: DateKey;
   log?: DayLog;
   predicted?: 'likely' | 'possible';
-  rewarded: boolean;
+  /** this day has been logged before (even if it was cleared later) */
+  touched: boolean;
+  /** logging this day right now would earn points */
+  canEarn: boolean;
   onChange: (log: DayLog) => void;
   onShiftDate: (delta: number) => void;
 }) {
@@ -220,9 +225,10 @@ export function LogPanel({
           {/* Period toggle */}
           <Section title="Period">
             <View style={styles.segment}>
-              <Choice label="No" selected={!current.period} onPress={() => update({ period: false })} />
+              <Choice label="No" a11yLabel="Period: no" selected={!current.period} onPress={() => update({ period: false })} />
               <Choice
                 label="Yes"
+                a11yLabel="Period: yes"
                 selected={current.period}
                 selectedBg={C.roseLight}
                 onPress={() => update({ period: true, flow: current.flow ?? 'medium' })}
@@ -276,12 +282,12 @@ export function LogPanel({
           <View style={styles.panelFooter}>
             <PText variant="tiny" color={C.inkSoft} style={styles.flex}>
               {hasContent(log)
-                ? rewarded
-                  ? 'Saved on this device'
-                  : 'Saved'
-                : rewarded
-                  ? 'Nothing logged for this day'
-                  : 'Log anything to earn +5 care points'}
+                ? 'Saved on this device'
+                : touched
+                  ? 'Nothing logged. A day only earns points the first time it’s logged.'
+                  : canEarn
+                    ? `Log anything to earn +${LOG_POINTS} care points`
+                    : `You’ve earned today’s +${LOG_POINTS}. Logging more days still helps predictions.`}
             </PText>
             {hasContent(log) ? (
               <Pressable
@@ -313,6 +319,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 
 function Choice({
   label,
+  a11yLabel,
   selected,
   onPress,
   selectedBg = C.amber,
@@ -320,6 +327,8 @@ function Choice({
   small,
 }: {
   label: string;
+  /** what screen readers say, if `label` alone isn't clear */
+  a11yLabel?: string;
   selected: boolean;
   onPress: () => void;
   selectedBg?: string;
@@ -333,7 +342,7 @@ function Choice({
       shadow={selected ? null : C.shadow}
       unit={2}
       accessibilityState={{ selected }}
-      accessibilityLabel={label}
+      accessibilityLabel={a11yLabel ?? label}
       innerStyle={[styles.choice, small && styles.choiceSmall]}>
       {leading}
       <PText variant={small ? 'small' : 'body'}>{label}</PText>
@@ -352,9 +361,8 @@ function variabilityLabel(sd: number) {
   return 'Varies a lot, so I use wider windows';
 }
 
-export function HistorySummary({ stats }: { stats: CycleStats }) {
-  const { avgCycle, sd, minCycle, maxCycle, cycleLengths, periods, avgPeriod, margin } = stats;
-  const next = stats.predictions[0];
+export function HistorySummary({ stats, today }: { stats: CycleStats; today: DateKey }) {
+  const { avgCycle, sd, minCycle, maxCycle, cycleLengths, periods, avgPeriod } = stats;
   const maxBar = Math.max(...cycleLengths, 1);
 
   return (
@@ -396,15 +404,13 @@ export function HistorySummary({ stats }: { stats: CycleStats }) {
           </View>
         </>
       )}
-      {next ? (
+      {stats.predictions.length ? (
         <View style={styles.nextBox}>
           <PText variant="label" color={C.inkSoft}>
             Next period
           </PText>
-          <PText variant="body">
-            Likely around <PText variant="bodyBold">{formatShort(next.start)}</PText>, anytime{' '}
-            {formatShort(next.windowStart)}–{formatShort(addDays(next.start, margin))}
-          </PText>
+          {/* same wording as Home's "Next" row */}
+          <PText variant="body">{nextPeriodText(stats, today)}</PText>
         </View>
       ) : null}
     </PixelBox>

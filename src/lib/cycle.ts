@@ -54,10 +54,15 @@ export interface CycleStats {
   maxCycle: number | null;
   avgPeriod: number;
   margin: number; // +/- days of uncertainty on predictions
+  /** The current cycle has run past its whole predicted start window. */
+  extended: boolean;
+  /** predictions[0] is the period everyone means by "next", including on its likely start day */
   predictions: Prediction[];
-  /** future days marked on the calendar */
-  predicted: Record<DateKey, 'likely' | 'possible'>;
+  /** today and future days marked on the calendar */
+  predicted: Record<DateKey, PeriodChance>;
 }
+
+export type PeriodChance = 'likely' | 'possible';
 
 export interface TodayStatus {
   phase: Phase;
@@ -66,8 +71,14 @@ export interface TodayStatus {
   extended: boolean; // this cycle is running longer than the user's usual range
   energy: number; // 1-5
   expectedFlow: Flow | null;
+  /** Flow the user logged for today, if any (spotting included). */
+  loggedFlow: Flow | null;
+  /** Same as stats.predictions[0], so Home and Calendar talk about the same period. */
   next: Prediction | null;
+  /** 0 on the likely start day, negative after it while still inside the window */
   daysUntilNext: number | null;
+  /** The mark the Calendar shows on today's cell (dashed = likely, dotted = possible). */
+  chance: PeriodChance | null;
 }
 
 const RECENT_CYCLES = 6;
@@ -78,18 +89,32 @@ const DEFAULT_FLOW_PATTERN: Flow[] = ['medium', 'heavy', 'medium', 'light', 'lig
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
-/** Group logged period days into periods. A single missed day still counts as the same period. */
+/** A bleeding day heavier than spotting. (Old logs with no flow saved count as real flow.) */
+export function isFlowDay(log: DayLog | undefined): boolean {
+  return !!log?.period && log.flow !== 'spotting';
+}
+
+/**
+ * Group logged period days into periods. A single missed day still counts as the same period.
+ *
+ * Spotting on its own doesn't start a new cycle (mid-cycle spotting is common). A run of
+ * bleeding days only counts as a period if it has at least one day of real flow, and the
+ * cycle starts on that first real-flow day. Spotting right before or after still joins it.
+ */
 export function groupPeriods(logs: Logs): Period[] {
   const days = Object.keys(logs).filter((k) => logs[k].period).sort();
-  const periods: Period[] = [];
+  const runs: DateKey[][] = [];
   for (const day of days) {
-    const last = periods[periods.length - 1];
-    if (last && diffDays(day, last.end) <= 2) {
-      last.end = day;
-      last.length = diffDays(day, last.start) + 1;
-    } else {
-      periods.push({ start: day, end: day, length: 1 });
-    }
+    const run = runs[runs.length - 1];
+    if (run && diffDays(day, run[run.length - 1]) <= 2) run.push(day);
+    else runs.push([day]);
+  }
+  const periods: Period[] = [];
+  for (const run of runs) {
+    const start = run.find((d) => isFlowDay(logs[d]));
+    if (!start) continue; // spotting only
+    const end = run[run.length - 1];
+    periods.push({ start, end, length: diffDays(end, start) + 1 });
   }
   return periods;
 }
@@ -124,11 +149,15 @@ export function analyze(logs: Logs, today: DateKey): CycleStats {
 
   const predictions: Prediction[] = [];
   const last = periods[periods.length - 1];
+  let extended = false;
   if (last) {
     let start = addDays(last.start, expectedCycle);
-    // If the whole window has already passed, don't show predictions in the past.
-    // Start predicting from tomorrow without counting how "late" anything is.
-    if (diffDays(today, addDays(start, margin)) > 0) start = addDays(today, 1);
+    // If the whole start window has already passed, the cycle is just running long. Predict
+    // from tomorrow without counting how "late" anything is. Home reads this same flag.
+    if (diffDays(today, addDays(start, margin)) > 0) {
+      extended = true;
+      start = addDays(today, 1);
+    }
     for (let i = 0; i < 3; i++) {
       predictions.push({
         start,
@@ -140,7 +169,7 @@ export function analyze(logs: Logs, today: DateKey): CycleStats {
     }
   }
 
-  const predicted: Record<DateKey, 'likely' | 'possible'> = {};
+  const predicted: Record<DateKey, PeriodChance> = {};
   for (const p of predictions) {
     for (let d = p.windowStart; diffDays(p.windowEnd, d) >= 0; d = addDays(d, 1)) {
       if (diffDays(d, today) < 0 || logs[d]?.period) continue;
@@ -160,6 +189,7 @@ export function analyze(logs: Logs, today: DateKey): CycleStats {
     maxCycle: cycleLengths.length ? Math.max(...cycleLengths) : null,
     avgPeriod,
     margin,
+    extended,
     predictions,
     predicted,
   };
@@ -179,17 +209,22 @@ function expectedFlowForDay(logs: Logs, periods: Period[], dayIndex: number): Fl
 
 export function todayStatus(logs: Logs, stats: CycleStats, today: DateKey): TodayStatus {
   const last = stats.periods[stats.periods.length - 1];
-  const next = stats.predictions.find((p) => diffDays(p.start, today) > 0) ?? null;
+  // Home uses the same prediction and the same calendar mark as the Calendar screen, so the
+  // two screens can't disagree (they used to on the likely start day itself).
+  const next = stats.predictions[0] ?? null;
   const daysUntilNext = next ? diffDays(next.start, today) : null;
+  const chance = stats.predicted[today] ?? null;
+  const loggedFlow = logs[today]?.period ? (logs[today].flow ?? null) : null;
 
   if (!last) {
-    return { phase: 'unknown', cycleDay: null, lateLuteal: false, extended: false, energy: 3, expectedFlow: null, next, daysUntilNext };
+    return { phase: 'unknown', cycleDay: null, lateLuteal: false, extended: false, energy: 3, expectedFlow: null, loggedFlow, next, daysUntilNext, chance };
   }
 
   const cycleDay = diffDays(today, last.start) + 1;
   const len = stats.expectedCycle;
+  // Spotting alone today (say, mid-cycle) doesn't make it a period day.
   const inPeriod =
-    !!logs[today]?.period ||
+    isFlowDay(logs[today]) ||
     diffDays(today, last.end) <= 0 ||
     (cycleDay <= stats.avgPeriod && diffDays(today, last.end) <= 1);
 
@@ -214,10 +249,10 @@ export function todayStatus(logs: Logs, stats: CycleStats, today: DateKey): Toda
     energy = 5;
   } else {
     phase = 'luteal';
-    extended = cycleDay > len + stats.margin;
+    extended = stats.extended;
     lateLuteal = !extended && cycleDay >= len - 4;
     energy = lateLuteal ? 2 : 3;
   }
 
-  return { phase, cycleDay, lateLuteal, extended, energy, expectedFlow, next, daysUntilNext };
+  return { phase, cycleDay, lateLuteal, extended, energy, expectedFlow, loggedFlow, next, daysUntilNext, chance };
 }

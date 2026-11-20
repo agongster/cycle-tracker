@@ -3,15 +3,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PixelBox, PixelIcon, PText } from '@/components/pixel';
 import { C } from '@/constants/theme';
-import { useLunar } from '@/state/lunar';
+import { useToastMessage } from '@/state/toast';
 
-/** Small pop-up for rewards ("+5 care points!") that floats above everything. */
-export function Toast() {
-  const { toast } = useLunar();
+/**
+ * Small pop-up for rewards ("+5 care points!") that floats above the screen it's rendered in.
+ * The root layout renders one, and the Customize sheet renders its own, because on iOS a
+ * native modal covers anything drawn by the root.
+ */
+export function Toast({ top }: { top?: number }) {
+  const toast = useToastMessage();
   const insets = useSafeAreaInsets();
   if (!toast) return null;
   return (
-    <View key={toast.id} style={[styles.wrap, { top: insets.top + 8 }]} accessibilityLiveRegion="polite">
+    <View key={toast.id} style={[styles.wrap, { top: top ?? insets.top + 8 }]} accessibilityLiveRegion="polite">
       <PixelBox bg={C.cream} innerStyle={styles.inner}>
         <PixelIcon name="star" size={2} />
         <PText variant="small" style={styles.text}>

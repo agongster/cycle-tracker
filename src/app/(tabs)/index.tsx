@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Animated, Platform, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { PetAvatar } from '@/components/pet-avatar';
@@ -8,20 +8,16 @@ import { PixelBox, PixelButton, PixelIcon, PixelSprite, PText } from '@/componen
 import { C, MaxContentWidth, PHASE_STAGE } from '@/constants/theme';
 import { hasContent } from '@/lib/cycle';
 import { formatLong } from '@/lib/dates';
-import {
-  adviceFor,
-  AFFIRMATIONS,
-  energyLabel,
-  flowLine,
-  nextLine,
-  petAppearance,
-  petLines,
-  phaseTitle,
-  pickDaily,
-} from '@/lib/insights';
-import type { PetLook } from '@/lib/sprites';
-import { CARE_ACTIONS, CARE_POINTS, LOG_POINTS, useLunar } from '@/state/lunar';
-import { useCycle } from '@/state/use-cycle';
+import { adviceFor, AFFIRMATIONS, energyLabel, flowLine, nextPeriodText, petLines, phaseTitle, pickDaily } from '@/lib/insights';
+import { CARE_ACTIONS, CARE_POINTS, canEarnLogPoints, LOG_POINTS } from '@/lib/rewards';
+import { useLunar } from '@/state/lunar';
+import { useCycle, usePetLook } from '@/state/use-cycle';
+
+/** How long a tap-the-pet affirmation stays before fading back to today's line. */
+const AFFIRMATION_MS = 3500;
+const FADE_MS = 200;
+// The native animation driver doesn't exist on web.
+const USE_NATIVE_DRIVER = Platform.OS !== 'web';
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -32,8 +28,30 @@ export default function HomeScreen() {
 
   const [tapLine, setTapLine] = useState<string | null>(null);
   const [heartKey, setHeartKey] = useState(0);
+  const [lineOpacity] = useState(() => new Animated.Value(1));
 
-  // the affirmation bubble + heart fade after a moment
+  // Fade the pet's words out, swap them, and fade them back in.
+  const changeLine = useCallback(
+    (next: string | null) => {
+      Animated.timing(lineOpacity, { toValue: 0, duration: FADE_MS, useNativeDriver: USE_NATIVE_DRIVER }).start(
+        ({ finished }) => {
+          if (!finished) return; // a newer tap interrupted this fade and will swap the text itself
+          setTapLine(next);
+          Animated.timing(lineOpacity, { toValue: 1, duration: FADE_MS, useNativeDriver: USE_NATIVE_DRIVER }).start();
+        },
+      );
+    },
+    [lineOpacity],
+  );
+
+  // After a moment, the affirmation fades back into today's phase line.
+  useEffect(() => {
+    if (!tapLine) return;
+    const id = setTimeout(() => changeLine(null), AFFIRMATION_MS);
+    return () => clearTimeout(id);
+  }, [tapLine, changeLine]);
+
+  // The heart pops up briefly.
   useEffect(() => {
     if (!heartKey) return;
     const id = setTimeout(() => setHeartKey(0), 1400);
@@ -41,10 +59,7 @@ export default function HomeScreen() {
   }, [heartKey]);
 
   const mood = todayLog?.mood;
-  const look: PetLook = useMemo(
-    () => ({ species: pet.species, color: pet.color, costume: pet.costume, ...petAppearance(status, mood) }),
-    [pet.species, pet.color, pet.costume, status, mood],
-  );
+  const look = usePetLook(status, mood);
   const dailyLine = pickDaily(petLines(status, pet.name, mood), today + status.phase + (mood ?? ''));
   const line = tapLine ?? dailyLine;
   const stage = PHASE_STAGE[status.phase];
@@ -54,7 +69,7 @@ export default function HomeScreen() {
 
   const onPetPress = () => {
     const options = AFFIRMATIONS.filter((a) => a !== tapLine);
-    setTapLine(options[Math.floor(Math.random() * options.length)]);
+    changeLine(options[Math.floor(Math.random() * options.length)]);
     setHeartKey(Date.now());
   };
 
@@ -131,12 +146,14 @@ export default function HomeScreen() {
               ) : null}
               <Tag bg={stage.sky} text={phaseTitle(status)} />
             </View>
-            <PText variant="body">
-              <PText variant="bodyBold" color={C.roseDeep}>
-                {pet.name}:{' '}
+            <Animated.View style={{ opacity: lineOpacity }}>
+              <PText variant="body">
+                <PText variant="bodyBold" color={C.roseDeep}>
+                  {pet.name}:{' '}
+                </PText>
+                {line}
               </PText>
-              {line}
-            </PText>
+            </Animated.View>
 
             <View style={styles.divider}>
               {Array.from({ length: 40 }, (_, i) => (
@@ -144,18 +161,18 @@ export default function HomeScreen() {
               ))}
             </View>
 
-            <InsightRow label="Energy">
+            <InsightRow label="Energy" a11yLabel={`Energy: ${energyLabel(status.energy)}, ${status.energy} out of 5`}>
               <EnergyMeter value={status.energy} />
               <PText variant="small">{energyLabel(status.energy)}</PText>
             </InsightRow>
             <InsightRow label="Flow">
               <PText variant="small" style={styles.flex}>
-                {flowLine(status, today)}
+                {flowLine(status)}
               </PText>
             </InsightRow>
             <InsightRow label="Next">
               <PText variant="small" style={styles.flex}>
-                {nextLine(status, stats.margin)}
+                {nextPeriodText(stats, today)}
               </PText>
             </InsightRow>
             <PText variant="small" color={C.inkSoft} style={styles.advice}>
@@ -204,10 +221,14 @@ export default function HomeScreen() {
             Today is logged. Thank you for checking in!
           </PText>
         ) : (
-          <PixelButton bg={C.amber} onPress={() => router.navigate('/calendar')} innerStyle={styles.logButton}>
+          <PixelButton
+            bg={C.amber}
+            // ?day=today makes the Calendar jump to today, even if another day was picked there before.
+            onPress={() => router.navigate({ pathname: '/calendar', params: { day: 'today' } })}
+            innerStyle={styles.logButton}>
             <PixelIcon name="calendar" size={2} />
             <PText variant="heading">Log today</PText>
-            <PText variant="tiny">+{LOG_POINTS} pts</PText>
+            {canEarnLogPoints(state, today, today) ? <PText variant="tiny">+{LOG_POINTS} pts</PText> : null}
           </PixelButton>
         )}
       </View>
@@ -223,9 +244,10 @@ function Tag({ text, bg }: { text: string; bg: string }) {
   );
 }
 
-function InsightRow({ label, children }: { label: string; children: React.ReactNode }) {
+/** With `a11yLabel`, screen readers read the whole row as one item with that label. */
+function InsightRow({ label, a11yLabel, children }: { label: string; a11yLabel?: string; children: React.ReactNode }) {
   return (
-    <View style={styles.insightRow}>
+    <View style={styles.insightRow} accessible={!!a11yLabel} accessibilityLabel={a11yLabel}>
       <PText variant="label" color={C.inkSoft} style={styles.insightLabel}>
         {label}
       </PText>
@@ -236,7 +258,7 @@ function InsightRow({ label, children }: { label: string; children: React.ReactN
 
 function EnergyMeter({ value }: { value: number }) {
   return (
-    <View style={styles.meter} accessibilityLabel={`Energy ${value} out of 5`}>
+    <View style={styles.meter}>
       {[1, 2, 3, 4, 5].map((i) => (
         <View key={i} style={[styles.meterCell, { backgroundColor: i <= value ? C.amber : C.cream }]} />
       ))}
