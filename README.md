@@ -7,22 +7,24 @@ I wanted to make a period tracker that involved a digital mascot, and that actua
 The app lets the user mark which days they have their cycle on a calendar, predicts future cycles based on the historical user data, as well as expectations on heavier/lighter flow. There is a custom mascot that reflects the user's moods and expected energy levels. 
 
 ## Screens
-
-<!-- ✍️ WRITE THIS YOURSELF (no AI): one entry per screen. Describe what it shows and what the user can do there. -->
+There are two screens. The first is the home screen, where the user sees the digital pet and is able to interact with it. The second is the calendar screen, which is not gamified at all, and purely serves as a tracker with predictions and analytics.
 
 ### Home
-_TODO (April)_
+- dialogue with the pet (when tapped on) and custom modifications of the pet's species, color, costume, and name with the edit pencil icon
+- a tracker of care points that increase when the user marks certain self-care actions as complete, like drinking water, eating good food, etc.
+- the day and phase of the cycle
+- energy level, expected flow, and next period predictions.
 
 ### Calendar
-_TODO (April)_
-
-### Customize your pal (opens from the pencil button on Home)
-_TODO (April)_
+- log entries for each day on the calendar, including symptoms and mood
+- patterns displaying average cycle, variability, average period length, and number of cycles
+- pink/red days symbolize period days, and intensity depends on the flow intensity
+- dashed lines around expected period days, taking variability into account
 
 ## Setup and running
 
 **Expo SDK:** 58 (`expo@~58.0.25`, React Native 0.88, Expo Router)
-**Tested on:** _TODO (April): e.g. "iPhone 15, iOS 26, Expo Go (SDK 58)" or "iOS Simulator, iPhone 16 Pro"_
+**Tested on:** iPhone 17
 
 ### Prerequisites
 
@@ -89,6 +91,4 @@ Fonts: [Silkscreen](https://fonts.google.com/specimen/Silkscreen) (headings) and
 
 ## What surprised me about mobile development
 
-<!-- ✍️ WRITE THIS YOURSELF (no AI). -->
-
-_TODO (April)_
+I think what surprised me about mobile development is how similar it is to actual webapp development. I'd always assumed that mobile development needed a special set of knowledge that was quite different from other platforms, but through this experience I realized that that isn't necessarily the case. While it does require specialized tools, and can be difficult to get an app published, the core coding concepts remain the same. 
