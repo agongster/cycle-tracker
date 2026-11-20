@@ -1,60 +1,83 @@
 # cycle-tracker
 
-A cycle tracking mobile app built with Expo (SDK 58) and Expo Router.
+I wanted to make a period tracker that involved a digital mascot, and that actually adjusts to irregular cycles and informs the user what to expect with energy levels and track patterns. 
 
-## About this project
+## What the app does
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+The app lets the user mark which days they have their cycle on a calendar, predicts future cycles based on the historical user data, as well as expectations on heavier/lighter flow. There is a custom mascot that reflects the user's moods and expected energy levels. 
 
-## Get started
+## Screens
 
-1. Install dependencies
+<!-- ✍️ WRITE THIS YOURSELF (no AI): one entry per screen. Describe what it shows and what the user can do there. -->
 
-   ```bash
-   npm install
-   ```
+### Home
+_TODO (April)_
 
-2. Start the app
+### Calendar
+_TODO (April)_
 
-   ```bash
-   npx expo start
-   ```
+### Customize your pal (opens from the pencil button on Home)
+_TODO (April)_
 
-In the output, you'll find options to open the app in a
+## Setup and running
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+**Expo SDK:** 58 (`expo@~58.0.25`, React Native 0.88, Expo Router)
+**Tested on:** _TODO (April): e.g. "iPhone 15, iOS 26, Expo Go (SDK 58)" or "iOS Simulator, iPhone 16 Pro"_
 
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+### Prerequisites
 
-## Get a fresh project
+- [Node.js](https://nodejs.org/) **22.13 or newer** (Expo SDK 58 / React Native 0.88 require it; Node 20 prints engine warnings and may fail)
+- One of:
+  - The **Expo Go** app on a phone ([iOS](https://apps.apple.com/app/expo-go/id982107779) / [Android](https://play.google.com/store/apps/details?id=host.exp.exponent)). It must be the build that supports **SDK 58**. If the App Store version is newer, install a matching one from [expo.dev/go](https://expo.dev/go).
+  - An iOS Simulator (Xcode on macOS) or Android Emulator (Android Studio)
 
-When you're ready, run:
+### Run it
 
 ```bash
-npm run reset-project
+git clone https://github.com/agongster/cycle-tracker.git
+cd cycle-tracker
+npm install
+npx expo start
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+Once the dev server starts:
 
-### Other setup steps
+- **Phone:** scan the QR code. On iOS use the Camera app; on Android use the scanner in Expo Go. Your phone and computer need to be on the same Wi-Fi network. If they can't connect (for example on campus Wi-Fi), try `npx expo start --tunnel`.
+- **iOS Simulator:** press `i` in the terminal.
+- **Android Emulator:** press `a` in the terminal.
+- **Web:** press `w` in the terminal.
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+Saving a file reloads the app automatically. To open the developer menu, shake the device or press `m` in the terminal.
 
-## Learn more
+### Trying it out
 
-To learn more about developing your project with Expo, look at the following resources:
+A fresh install starts with no data. To see predictions and stats right away, tap the pencil button on Home, then **Load sample cycles** (six irregular cycles, 26–34 days). **Erase everything** on the same screen resets the app. All data is stored only on the device (AsyncStorage) and survives app restarts.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+### Project structure
 
-## Join the community
+```
+src/app/                 screens (Expo Router file-based routing)
+  _layout.tsx            root Stack: loads fonts + saved data, hosts the toast
+  (tabs)/_layout.tsx     custom pixel-art tab bar (Home, Calendar)
+  (tabs)/index.tsx       Home: pet, dialogue/insight card, self-care, care points
+  (tabs)/calendar.tsx    Calendar: month grid, log entry panel, history summary
+  customize.tsx          modal for pet name, species, color, costumes, data tools
+src/components/          pixel UI kit (boxes, buttons, text), pet avatar, calendar parts, toast
+src/lib/
+  cycle.ts               period grouping, averages, variability, predictions, phase
+  dates.ts               timezone-safe YYYY-MM-DD date math
+  insights.ts            pet dialogue, advice, and phase/mood -> pet appearance
+  sprites.ts             procedural pixel art for pets, costumes, props, icons
+src/state/
+  lunar.tsx              app state + AsyncStorage persistence + care points
+  use-cycle.ts           derived cycle stats for today
+src/constants/theme.ts   warm color palette, fonts, spacing
+```
 
-Join our community of developers creating universal apps.
+Fonts: [Silkscreen](https://fonts.google.com/specimen/Silkscreen) (headings) and [Jersey 15](https://fonts.google.com/specimen/Jersey+15) (body), via `@expo-google-fonts`. All pet and icon art is drawn in code. There are no image assets.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## What surprised me about mobile development
+
+<!-- ✍️ WRITE THIS YOURSELF (no AI). -->
+
+_TODO (April)_

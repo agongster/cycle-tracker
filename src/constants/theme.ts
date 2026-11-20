@@ -1,65 +1,60 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://unistyl.es/), etc.
- */
+import type { Flow, Phase } from '@/lib/cycle';
 
-import '@/global.css';
-
-import { Platform } from 'react-native';
-
-export const Colors = {
-  light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
-  },
-  dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
-  },
+/** Warm, cozy palette (cocoa ink on cream paper). */
+export const C = {
+  bg: '#FBE9D0',
+  bgDeep: '#F3D3AA',
+  panel: '#FFF7EA',
+  panelAlt: '#FDEBD6',
+  ink: '#4A2C2A',
+  inkSoft: '#85594A',
+  inkFaint: '#C29C82',
+  shadow: '#DDB58C',
+  rose: '#E0675F',
+  roseDeep: '#B83A3F',
+  roseLight: '#F6B5AE',
+  blush: '#FCE1DA',
+  peach: '#F7B98B',
+  amber: '#F2B544',
+  amberDeep: '#D48F2A',
+  sage: '#93B37A',
+  sageLight: '#DDEBCF',
+  lavender: '#BBA6D6',
+  cream: '#FFF3DD',
+  white: '#FFFDF8',
 } as const;
 
-export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
+export const FLOW_COLORS: Record<Flow, string> = {
+  spotting: '#F7C9C2',
+  light: '#F09A93',
+  medium: '#E0675F',
+  heavy: '#B03A3E',
+};
 
-export const Fonts = Platform.select({
-  ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: 'ui-monospace',
-  },
-  default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
-  },
-  web: {
-    sans: 'var(--font-display)',
-    serif: 'var(--font-serif)',
-    rounded: 'var(--font-rounded)',
-    mono: 'var(--font-mono)',
-  },
-});
+/** Stage colors behind the pet, one mood per phase. */
+export const PHASE_STAGE: Record<Phase, { sky: string; floor: string; accent: string }> = {
+  menstrual: { sky: '#F2C3BC', floor: '#DF9C93', accent: '#FFF3DD' },
+  follicular: { sky: '#FAD9AA', floor: '#E9B57C', accent: '#FFFDF8' },
+  ovulatory: { sky: '#FBE6A6', floor: '#E8C46A', accent: '#FFFDF8' },
+  luteal: { sky: '#E6D0E2', floor: '#C8A6C4', accent: '#FFF3DD' },
+  unknown: { sky: '#F6DEC4', floor: '#E5C19C', accent: '#FFFDF8' },
+};
+
+export const Fonts = {
+  display: 'Silkscreen_400Regular',
+  displayBold: 'Silkscreen_700Bold',
+  body: 'Jersey15_400Regular',
+} as const;
+
+/** Size of one "pixel" in UI borders and shadows. */
+export const PX = 3;
 
 export const Spacing = {
-  half: 2,
-  one: 4,
-  two: 8,
-  three: 16,
-  four: 24,
-  five: 32,
-  six: 64,
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 24,
 } as const;
 
-export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
-export const MaxContentWidth = 800;
+export const MaxContentWidth = 560;
